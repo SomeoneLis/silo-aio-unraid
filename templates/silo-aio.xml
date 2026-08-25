@@ -10,20 +10,20 @@
   <Icon>https://raw.githubusercontent.com/Silo-Server/silo-server/main/assets/icon.png</Icon>
 
   <!-- Ports -->
-  <Config Name="Web Port" Target="8090" Default="8090" Mode="tcp" Type="Port" Display="always" Required="true"/>
-  <Config Name="Meilisearch Port" Target="7700" Default="7700" Mode="tcp" Type="Port" Display="advanced" Required="false"/>
+  <Config Name="Web Port" Target="8090" Default="8090" Mode="tcp" Type="Port" Display="always" Required="true" Description="Web interface port for Silo Server UI and API access."/>
+  <Config Name="Meilisearch Port" Target="7700" Default="7700" Mode="tcp" Type="Port" Display="advanced" Required="false" Description="Internal API port for Meilisearch. Only needs to be mapped if accessing search services directly outside the container network."/>
 
   <!-- Path Mappings -->
-  <Config Name="Appdata Storage" Target="/var/lib/silo" Default="/mnt/user/appdata/silo" Mode="rw" Type="Path" Display="always" Required="true"/>
-  <Config Name="Media Storage" Target="/mnt/user/data" Default="/mnt/user/data" Mode="ro" Type="Path" Display="always" Required="true"/>
-  <Config Name="Transcode Cache" Target="/tmp/silo-transcode" Default="/tmp/silo-transcode" Mode="rw" Type="Path" Display="always" Required="false"/>
+  <Config Name="Appdata Storage" Target="/var/lib/silo" Default="/mnt/user/appdata/silo" Mode="rw" Type="Path" Display="always" Required="true" Description="Persistent host storage path for the PostgreSQL 18 database, Redis cache, local metadata, and Meilisearch indexes."/>
+  <Config Name="Media Storage" Target="/mnt/media" Default="/mnt/user/Media/" Mode="ro" Type="Path" Display="always" Required="true" Description="Host directory containing your Movies and TV Shows shares. Map your primary media share here."/>
+  <Config Name="Transcode Cache" Target="/tmp/silo-transcode" Default="/tmp/silo-transcode" Mode="rw" Type="Path" Display="always" Required="false" Description="Temporary directory for video transcoding buffers. Using /tmp/silo-transcode stores temp files in RAM for maximum speed. If your system has 16GB of RAM or less, change this host path to an SSD path like /mnt/cache/appdata/silo/transcode to prevent high memory usage."/>
 
   <!-- GPU Device Mapping (Intel Quick Sync / AMD VA-API) -->
-  <Config Name="Intel / AMD GPU Device" Target="/dev/dri" Default="/dev/dri" Mode="" Type="Device" Display="always" Required="false"/>
+  <Config Name="Intel / AMD GPU Device" Target="/dev/dri" Default="/dev/dri" Mode="" Type="Device" Display="always" Required="false" Description="Passes host graphics device nodes for Intel Quick Sync and AMD VA-API hardware video encoding/decoding. Leave as /dev/dri if using integrated or discrete Intel/AMD GPUs."/>
 
   <!-- Environment Variables -->
-  <Config Name="NVIDIA Driver Capabilities" Target="NVIDIA_DRIVER_CAPABILITIES" Default="compute,video,utility" Description="Required capabilities for NVIDIA NVENC/NVDEC transcoding" Type="Variable" Display="always" Required="false"/>
-  <Config Name="NVIDIA Visible Devices" Target="NVIDIA_VISIBLE_DEVICES" Default="all" Description="Set to 'all' or GPU UUID for NVENC hardware transcoding" Type="Variable" Display="always" Required="false"/>
-  <Config Name="Secret Key" Target="SECRET_KEY" Default="" Description="Encryption key for credentials (auto-generated if left empty)" Type="Variable" Display="advanced"/>
-  <Config Name="Meilisearch Master Key" Target="MEILI_MASTER_KEY" Default="" Description="Custom Meilisearch key (auto-generated if left empty)" Type="Variable" Display="advanced"/>
+  <Config Name="NVIDIA Driver Capabilities" Target="NVIDIA_DRIVER_CAPABILITIES" Default="compute,video,utility" Description="Required driver capabilities for NVIDIA NVENC/NVDEC hardware transcoding. Set to 'compute,video,utility' or 'all'. Requires the Nvidia Driver plugin to be installed in Unraid." Type="Variable" Display="always" Required="false"/>
+  <Config Name="NVIDIA Visible Devices" Target="NVIDIA_VISIBLE_DEVICES" Default="all" Description="NVIDIA GPU selection. Set to 'all' to use the first available graphics card, or specify your GPU UUID (e.g., GPU-xxxx...). Requires the Nvidia Driver plugin to be installed in Unraid." Type="Variable" Display="always" Required="false"/>
+  <Config Name="Secret Key" Target="SECRET_KEY" Default="" Description="Encryption key for securing user credentials and session tokens. Auto-generated at startup if left blank." Type="Variable" Display="advanced"/>
+  <Config Name="Meilisearch Master Key" Target="MEILI_MASTER_KEY" Default="" Description="Master key for securing the Meilisearch search API. Auto-generated at startup if left blank and auto-injected into Silo configuration." Type="Variable" Display="advanced"/>
 </Container>
