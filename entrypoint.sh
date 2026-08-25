@@ -6,10 +6,9 @@ if [ -z "$SECRET_KEY" ]; then
     export SECRET_KEY=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 48)
 fi
 
-# Auto-generate MEILI_MASTER_KEY if not provided
+# Set a fallback MEILI_MASTER_KEY if empty
 if [ -z "$MEILI_MASTER_KEY" ]; then
-    export MEILI_MASTER_KEY=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 32)
-    echo "Generated MEILI_MASTER_KEY: $MEILI_MASTER_KEY"
+    export MEILI_MASTER_KEY="silo_aio_meili_default_key_32bytes!"
 fi
 
 # Start Redis and PostgreSQL
@@ -29,6 +28,22 @@ su - postgres -c "psql -tc \"SELECT 1 FROM pg_database WHERE datname = 'silo'\" 
 # Start Meilisearch in background
 mkdir -p /var/lib/silo/meilisearch
 meilisearch --db-path /var/lib/silo/meilisearch --http-addr 127.0.0.1:7700 --master-key "$MEILI_MASTER_KEY" --no-analytics &
+
+# Background script: Pre-inject Meilisearch configuration directly into PostgreSQL
+(
+  # Wait for Silo process to start up
+  sleep 12
+  
+  # Inject Meilisearch provider, URL, and key into Silo settings table
+  su - postgres -c "psql -d silo -c \"
+    INSERT INTO settings (key, value) 
+    VALUES 
+      ('search.provider', 'meilisearch'), 
+      ('search.meili_url', 'http://127.0.0.1:7700'), 
+      ('search.meili_key', '$MEILI_MASTER_KEY') 
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+  \"" 2>/dev/null || true
+)&
 
 # Start Silo application
 exec /app/silo
