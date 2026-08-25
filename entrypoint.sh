@@ -1,6 +1,12 @@
 #!/bin/bash
 set -e
 
+# Ensure postgres user and group exist in system
+if ! id -u postgres >/dev/null 2>&1; then
+    groupadd -r postgres 2>/dev/null || true
+    useradd -r -g postgres -d /var/lib/silo/postgres -s /bin/bash postgres
+fi
+
 # Export PostgreSQL binary path globally
 export PATH="/usr/lib/postgresql/18/bin:$PATH"
 
