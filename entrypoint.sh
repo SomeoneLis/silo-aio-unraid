@@ -8,7 +8,7 @@ if ! id -u postgres >/dev/null 2>&1; then
 fi
 
 # Export PostgreSQL binary path globally
-export PATH="/usr/lib/postgresql/18/bin:$PATH"
+export PATH="/usr/lib/postgresql/18/bin:/app:$PATH"
 
 # Auto-generate SECRET_KEY if empty
 if [ -z "$SECRET_KEY" ]; then
@@ -69,5 +69,16 @@ meilisearch --db-path /var/lib/silo/meilisearch --http-addr 127.0.0.1:7700 --mas
   done
 )&
 
-# 7. Start main Silo application
-exec /app/silo
+# 7. Locate and execute main Silo binary
+SILO_EXEC="/app/silo"
+if [ ! -f "$SILO_EXEC" ]; then
+    SILO_EXEC=$(which silo 2>/dev/null || which silo-server 2>/dev/null || find / -name "silo" -type f 2>/dev/null | head -n 1)
+fi
+
+if [ -z "$SILO_EXEC" ] || [ ! -f "$SILO_EXEC" ]; then
+    echo "ERROR: Could not locate Silo executable!"
+    exit 1
+fi
+
+echo "Starting Silo server executable from: $SILO_EXEC"
+exec "$SILO_EXEC"
