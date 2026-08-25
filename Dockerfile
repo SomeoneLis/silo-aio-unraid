@@ -7,7 +7,10 @@ ENV PATH="/usr/lib/postgresql/18/bin:$PATH"
 ENV DATABASE_URL=postgres://silo:silo_password@127.0.0.1:5432/silo?sslmode=disable
 ENV REDIS_URL=redis://127.0.0.1:6379
 
-# Add PostgreSQL Official Repository directly for Bookworm (PG18 + pgvector)
+# Copy Silo application files BEFORE package installations so system users aren't overwritten
+COPY --from=silo-official / /
+
+# Add PostgreSQL Official Repository and install PostgreSQL 18 + pgvector
 RUN apt-get update && apt-get install -y curl gnupg ca-certificates \
     && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /etc/apt/trusted.gpg.d/postgresql.gpg \
     && echo "deb http://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
@@ -25,9 +28,6 @@ RUN apt-get update && apt-get install -y curl gnupg ca-certificates \
 # Install Meilisearch static binary
 RUN curl -sL https://github.com/meilisearch/meilisearch/releases/download/v1.13.0/meilisearch-linux-amd64 -o /usr/local/bin/meilisearch \
     && chmod +x /usr/local/bin/meilisearch
-
-# Copy application assets from official Silo container
-COPY --from=silo-official / /
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
