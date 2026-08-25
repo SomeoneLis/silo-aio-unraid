@@ -7,10 +7,10 @@ ENV PATH="/usr/lib/postgresql/18/bin:$PATH"
 ENV DATABASE_URL=postgres://silo:silo_password@127.0.0.1:5432/silo?sslmode=disable
 ENV REDIS_URL=redis://127.0.0.1:6379
 
-# Add PostgreSQL Official Repository for PG18 + pgvector
-RUN apt-get update && apt-get install -y curl gnupg lsb-release \
-    && echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb-release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+# Add PostgreSQL Official Repository directly for Bookworm (PG18 + pgvector)
+RUN apt-get update && apt-get install -y curl gnupg ca-certificates \
     && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /etc/apt/trusted.gpg.d/postgresql.gpg \
+    && echo "deb http://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
     && apt-get update && apt-get install -y \
     postgresql-18 \
     postgresql-18-pgvector \
@@ -19,7 +19,6 @@ RUN apt-get update && apt-get install -y curl gnupg lsb-release \
     va-driver-all \
     mesa-va-drivers \
     intel-media-va-driver \
-    ca-certificates \
     tar \
     && rm -rf /var/lib/apt/lists/*
 
