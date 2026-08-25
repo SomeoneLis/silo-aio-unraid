@@ -8,6 +8,7 @@
   <Category>MediaApp:Video MediaApp:Music</Category>
   <WebUI>http://[IP]:[PORT:8090]</WebUI>
   <Icon>https://raw.githubusercontent.com/Silo-Server/silo-server/main/assets/icon.png</Icon>
+  <Date>2026-08-25</Date>
 
   <!-- Ports -->
   <Config Name="Web Port" Target="8090" Default="8090" Mode="tcp" Type="Port" Display="always" Required="true" Description="Web interface port for Silo Server UI and API access."/>
