@@ -1,7 +1,10 @@
 #!/bin/bash
 set -e
 
-# Auto-generate SECRET_KEY if empty (Silo hard-fails without it)
+# Export PostgreSQL binary path globally
+export PATH="/usr/lib/postgresql/18/bin:$PATH"
+
+# Auto-generate SECRET_KEY if empty
 if [ -z "$SECRET_KEY" ]; then
     export SECRET_KEY=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 48)
 fi
@@ -11,37 +14,52 @@ if [ -z "$MEILI_MASTER_KEY" ]; then
     export MEILI_MASTER_KEY="silo_aio_meili_default_key_32bytes!"
 fi
 
-# Start Redis and PostgreSQL 18
-service redis-server start
-service postgresql start
+# Create persistent appdata subdirectories and assign ownership
+mkdir -p /var/lib/silo/postgres /var/lib/silo/redis /var/lib/silo/meilisearch
+chown -R postgres:postgres /var/lib/silo/postgres
 
-# Wait until PostgreSQL 18 is ready
-until pg_isready; do
+# 1. Start Redis
+service redis-server start
+
+# 2. Initialize and start PostgreSQL 18 inside persistent appdata (/var/lib/silo/postgres)
+if [ ! -s "/var/lib/silo/postgres/PG_VERSION" ]; then
+    echo "Initializing new PostgreSQL database cluster in appdata..."
+    su postgres -c "/usr/lib/postgresql/18/bin/initdb -D /var/lib/silo/postgres"
+fi
+
+su postgres -c "/usr/lib/postgresql/18/bin/pg_ctl -D /var/lib/silo/postgres -l /var/lib/silo/postgres/logfile start"
+
+# 3. Wait for PostgreSQL readiness
+until /usr/lib/postgresql/18/bin/pg_isready -h 127.0.0.1 -p 5432; do
   echo "Waiting for PostgreSQL database..."
   sleep 1
 done
 
-# Initialize database, user, and vector extensions
-su - postgres -c "psql -tc \"SELECT 1 FROM pg_user WHERE usename = 'silo'\" | grep -q 1 || psql -c \"CREATE USER silo WITH PASSWORD 'silo_password';\""
-su - postgres -c "psql -tc \"SELECT 1 FROM pg_database WHERE datname = 'silo'\" | grep -q 1 || psql -c \"CREATE DATABASE silo OWNER silo;\""
-su - postgres -c "psql -d silo -c \"CREATE EXTENSION IF NOT EXISTS vector; CREATE EXTENSION IF NOT EXISTS citext;\""
+# 4. Provision database user, database, and vector extensions
+su postgres -c "/usr/lib/postgresql/18/bin/psql -h 127.0.0.1 -c \"CREATE USER silo WITH PASSWORD 'silo_password';\"" 2>/dev/null || true
+su postgres -c "/usr/lib/postgresql/18/bin/psql -h 127.0.0.1 -c \"CREATE DATABASE silo OWNER silo;\"" 2>/dev/null || true
+su postgres -c "/usr/lib/postgresql/18/bin/psql -h 127.0.0.1 -d silo -c \"CREATE EXTENSION IF NOT EXISTS vector; CREATE EXTENSION IF NOT EXISTS citext;\""
 
-# Start Meilisearch in background
-mkdir -p /var/lib/silo/meilisearch
+# 5. Start Meilisearch in background
 meilisearch --db-path /var/lib/silo/meilisearch --http-addr 127.0.0.1:7700 --master-key "$MEILI_MASTER_KEY" --no-analytics &
 
-# Pre-inject Meilisearch configuration into Silo settings once initialized
+# 6. Polling loop: Wait until Silo creates the settings table before injecting Meilisearch credentials
 (
-  sleep 12
-  su - postgres -c "psql -d silo -c \"
-    INSERT INTO settings (key, value) 
-    VALUES 
-      ('search.provider', 'meilisearch'), 
-      ('search.meili_url', 'http://127.0.0.1:7700'), 
-      ('search.meili_key', '$MEILI_MASTER_KEY') 
-    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
-  \"" 2>/dev/null || true
+  for i in {1..30}; do
+    sleep 3
+    if su postgres -c "/usr/lib/postgresql/18/bin/psql -h 127.0.0.1 -d silo -c \"SELECT 1 FROM settings LIMIT 1;\"" >/dev/null 2>&1; then
+      su postgres -c "/usr/lib/postgresql/18/bin/psql -h 127.0.0.1 -d silo -c \"
+        INSERT INTO settings (key, value) 
+        VALUES 
+          ('search.provider', 'meilisearch'), 
+          ('search.meili_url', 'http://127.0.0.1:7700'), 
+          ('search.meili_key', '$MEILI_MASTER_KEY') 
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+      \"" >/dev/null 2>&1
+      break
+    fi
+  done
 )&
 
-# Start Silo application
+# 7. Start main Silo application
 exec /app/silo
