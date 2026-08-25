@@ -7,10 +7,7 @@ ENV PATH="/usr/lib/postgresql/18/bin:$PATH"
 ENV DATABASE_URL=postgres://silo:silo_password@127.0.0.1:5432/silo?sslmode=disable
 ENV REDIS_URL=redis://127.0.0.1:6379
 
-# Copy Silo application files BEFORE package installations so system users aren't overwritten
-COPY --from=silo-official / /
-
-# Add PostgreSQL Official Repository and install PostgreSQL 18 + pgvector
+# 1. Install PostgreSQL 18, Redis, FFmpeg, and GPU drivers on clean Debian
 RUN apt-get update && apt-get install -y curl gnupg ca-certificates \
     && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /etc/apt/trusted.gpg.d/postgresql.gpg \
     && echo "deb http://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
@@ -25,9 +22,16 @@ RUN apt-get update && apt-get install -y curl gnupg ca-certificates \
     tar \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Meilisearch static binary
+# 2. Install Meilisearch static binary
 RUN curl -sL https://github.com/meilisearch/meilisearch/releases/download/v1.13.0/meilisearch-linux-amd64 -o /usr/local/bin/meilisearch \
     && chmod +x /usr/local/bin/meilisearch
+
+# 3. Safely extract Silo application assets into /app without overwriting Debian system folders
+COPY --from=silo-official / /silo-src/
+RUN mkdir -p /app \
+    && if [ -d "/silo-src/app" ]; then cp -rn /silo-src/app/* /app/; fi \
+    && if [ -f "/silo-src/silo" ]; then cp -n /silo-src/silo /app/silo; fi \
+    && rm -rf /silo-src
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
