@@ -20,9 +20,9 @@ if [ -z "$MEILI_MASTER_KEY" ]; then
     export MEILI_MASTER_KEY="silo_aio_meili_default_key_32bytes!"
 fi
 
-# Create persistent appdata subdirectories and assign ownership
+# Create persistent appdata subdirectories and set ownership for the full tree
 mkdir -p /var/lib/silo/postgres /var/lib/silo/redis /var/lib/silo/meilisearch /var/lib/silo/logs
-chown -R postgres:postgres /var/lib/silo/postgres
+chown -R postgres:postgres /var/lib/silo
 
 # 1. Start Redis directly
 redis-server --daemonize yes
@@ -35,7 +35,7 @@ if [ ! -f "/var/lib/silo/postgres/PG_VERSION" ]; then
     su postgres -c "/usr/lib/postgresql/18/bin/initdb -D /var/lib/silo/postgres --locale=C.UTF-8 --encoding=UTF8"
 fi
 
-su postgres -c "/usr/lib/postgresql/18/bin/pg_ctl -D /var/lib/silo/postgres -l /var/lib/silo/logs/pg.log start"
+su postgres -c "/usr/lib/postgresql/18/bin/pg_ctl -D /var/lib/silo/postgres -l /var/lib/silo/postgres/logfile start"
 
 # 3. Wait for PostgreSQL readiness
 until /usr/lib/postgresql/18/bin/pg_isready -h 127.0.0.1 -p 5432; do
