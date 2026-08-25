@@ -8,6 +8,9 @@
   <Category>MediaApp:Video MediaApp:Music</Category>
   <WebUI>http://[IP]:[PORT:8090]</WebUI>
   <Icon>https://raw.githubusercontent.com/Silo-Server/silo-server/main/assets/icon.png</Icon>
+  <Project>https://github.com/Silo-Server/silo-server</Project>
+  <Support>https://github.com/Silo-Server/silo-server/issues</Support>
+  <Shell>bash</Shell>
   <Date>2026-08-25</Date>
 
   <!-- Ports -->
