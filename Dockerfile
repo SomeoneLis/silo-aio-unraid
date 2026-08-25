@@ -4,6 +4,7 @@ FROM debian:bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PATH="/usr/lib/postgresql/18/bin:/app:$PATH"
+ENV PORT=8090
 ENV DATABASE_URL=postgres://silo:silo_password@127.0.0.1:5432/silo?sslmode=disable
 ENV REDIS_URL=redis://127.0.0.1:6379
 
@@ -29,7 +30,7 @@ RUN apt-get update && apt-get install -y curl gnupg ca-certificates \
 RUN curl -sL https://github.com/meilisearch/meilisearch/releases/download/v1.13.0/meilisearch-linux-amd64 -o /usr/local/bin/meilisearch \
     && chmod +x /usr/local/bin/meilisearch
 
-# 3. Copy official image assets and automatically locate/extract Silo binary and dependencies
+# 3. Copy official image assets and extract Silo binary
 COPY --from=silo-official / /silo-src/
 RUN mkdir -p /app \
     && SILO_BIN=$(find /silo-src -type f \( -name "silo" -o -name "silo-server" \) | head -n 1) \
