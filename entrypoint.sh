@@ -3,7 +3,7 @@ set -e
 
 # Auto-generate SECRET_KEY if empty (Silo hard-fails without it)
 if [ -z "$SECRET_KEY" ]; then
-    export SECRET_KEY=$(head /tr -dc A-Za-z0-9 </dev/urandom | head -c 48)
+    export SECRET_KEY=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 48)
 fi
 
 # Fallback MEILI_MASTER_KEY
@@ -21,16 +21,16 @@ until pg_isready; do
   sleep 1
 done
 
-# Initialize database, user, and required vector extensions
+# Initialize database, user, and vector extensions
 su - postgres -c "psql -tc \"SELECT 1 FROM pg_user WHERE usename = 'silo'\" | grep -q 1 || psql -c \"CREATE USER silo WITH PASSWORD 'silo_password';\""
 su - postgres -c "psql -tc \"SELECT 1 FROM pg_database WHERE datname = 'silo'\" | grep -q 1 || psql -c \"CREATE DATABASE silo OWNER silo;\""
-su - postgres -c "psql -d silo -c \"CREATE EXTENSION IF NOT EXISTS pgvector; CREATE EXTENSION IF NOT EXISTS citext;\""
+su - postgres -c "psql -d silo -c \"CREATE EXTENSION IF NOT EXISTS vector; CREATE EXTENSION IF NOT EXISTS citext;\""
 
 # Start Meilisearch in background
 mkdir -p /var/lib/silo/meilisearch
 meilisearch --db-path /var/lib/silo/meilisearch --http-addr 127.0.0.1:7700 --master-key "$MEILI_MASTER_KEY" --no-analytics &
 
-# Pre-inject Meilisearch configuration into Silo settings
+# Pre-inject Meilisearch configuration into Silo settings once initialized
 (
   sleep 12
   su - postgres -c "psql -d silo -c \"
