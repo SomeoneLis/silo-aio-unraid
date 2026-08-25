@@ -25,6 +25,14 @@ fi
 mkdir -p /var/lib/silo/postgres /var/lib/silo/redis /var/lib/silo/meilisearch /var/lib/silo/logs
 chown -R postgres:postgres /var/lib/silo
 
+# Truncate PostgreSQL log if larger than 50MB to protect appdata disk space
+PG_LOG="/var/lib/silo/postgres/logfile"
+if [ -f "$PG_LOG" ] && [ $(stat -c%s "$PG_LOG" 2>/dev/null || echo 0) -gt 52428800 ]; then
+    echo "PostgreSQL log exceeds 50MB. Truncating..."
+    tail -n 1000 "$PG_LOG" > "${PG_LOG}.tmp" && mv "${PG_LOG}.tmp" "$PG_LOG"
+    chown postgres:postgres "$PG_LOG"
+fi
+
 # 1. Start Redis directly
 redis-server --daemonize yes
 
@@ -70,7 +78,7 @@ meilisearch --db-path /var/lib/silo/meilisearch --http-addr 127.0.0.1:7700 --mas
   done
 )&
 
-# 7. Locate and execute main Silo binary
+# 7. Locate main Silo binary
 SILO_EXEC="/app/silo"
 if [ ! -f "$SILO_EXEC" ]; then
     SILO_EXEC=$(which silo 2>/dev/null || which silo-server 2>/dev/null || find / -name "silo" -type f 2>/dev/null | head -n 1)
@@ -81,5 +89,21 @@ if [ -z "$SILO_EXEC" ] || [ ! -f "$SILO_EXEC" ]; then
     exit 1
 fi
 
+# 8. Graceful shutdown handler for Unraid stop/restart signals
+cleanup() {
+    echo "Received termination signal. Shutting down background services gracefully..."
+    if [ -n "$SILO_PID" ]; then kill -TERM "$SILO_PID" 2>/dev/null || true; fi
+    su postgres -c "/usr/lib/postgresql/18/bin/pg_ctl -D /var/lib/silo/postgres -m fast stop" 2>/dev/null || true
+    redis-cli shutdown 2>/dev/null || true
+    pkill -f meilisearch 2>/dev/null || true
+    exit 0
+}
+
+trap cleanup SIGTERM SIGINT
+
+# 9. Start Silo in background and wait
 echo "Starting Silo server executable on port $PORT from: $SILO_EXEC"
-exec "$SILO_EXEC"
+"$SILO_EXEC" &
+SILO_PID=$!
+
+wait "$SILO_PID"
