@@ -10,7 +10,7 @@
   <Icon>https://raw.githubusercontent.com/Silo-Server/silo-server/main/assets/icon.png</Icon>
 
   <!-- Ports -->
-  <Config Name="Web Port" Target="8090" Default="8090" Mode="tcp" Type="Port" Display="always" Required="true" Description="Web interface port for Silo Server UI and API access."/>
+  <Config Name="Web Port" Target="8080" Default="8090" Mode="tcp" Type="Port" Display="always" Required="true" Description="Web interface port for Silo Server UI and API access. Maps host port 8090 to container port 8080."/>
   <Config Name="Meilisearch Port" Target="7700" Default="7700" Mode="tcp" Type="Port" Display="advanced" Required="false" Description="Internal API port for Meilisearch. Only needs to be mapped if accessing search services directly outside the container network."/>
 
   <!-- Path Mappings -->
