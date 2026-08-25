@@ -8,10 +8,11 @@ ENV PORT=8090
 ENV DATABASE_URL=postgres://silo:silo_password@127.0.0.1:5432/silo?sslmode=disable
 ENV REDIS_URL=redis://127.0.0.1:6379
 
-# 1. Install PostgreSQL 18, Redis, FFmpeg, libvips, GPU drivers, git, nodejs, npm with minimal footprint
+# 1. Install PostgreSQL 18, Redis, FFmpeg, libvips, GPU drivers, git, and Node.js 20 (NodeSource)
 RUN apt-get update && apt-get install -y --no-install-recommends curl gnupg ca-certificates \
     && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /etc/apt/trusted.gpg.d/postgresql.gpg \
     && echo "deb http://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get update && apt-get install -y --no-install-recommends \
     postgresql-18 \
     postgresql-18-pgvector \
@@ -23,11 +24,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl gnupg ca-c
     mesa-va-drivers \
     git \
     nodejs \
-    npm \
     findutils \
     tar \
     && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /root/.npm
 
 # 2. Install Meilisearch static binary
 RUN curl -sL https://github.com/meilisearch/meilisearch/releases/download/v1.13.0/meilisearch-linux-amd64 -o /usr/local/bin/meilisearch \
@@ -44,7 +44,7 @@ RUN mkdir -p /app \
     && if [ -d "/silo-src/usr/local/lib" ]; then cp -rn /silo-src/usr/local/lib/* /usr/local/lib/ 2>/dev/null || true; fi \
     && chmod +x /app/silo 2>/dev/null || true \
     && ldconfig \
-    && rm -rf /silo-src
+    && rm -rf /silo-src /root/.npm
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
