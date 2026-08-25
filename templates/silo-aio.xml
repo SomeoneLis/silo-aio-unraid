@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Container version="2">
   <Name>silo-aio</Name>
-  <Repository>ghcr.io/YOUR_GITHUB_USERNAME/silo-aio:latest</Repository>
-  <Registry>https://ghcr.io/YOUR_GITHUB_USERNAME/silo-aio</Registry>
+  <Repository>ghcr.io/SomeoneLis/silo-aio:latest</Repository>
+  <Registry>https://ghcr.io/SomeoneLis/silo-aio</Registry>
   <Network>bridge</Network>
   <Overview>All-In-One single container release of Silo Server, bundling PostgreSQL and Redis.</Overview>
   <Category>MediaApp:Video MediaApp:Music</Category>
