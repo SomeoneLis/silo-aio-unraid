@@ -7,8 +7,9 @@ if ! id -u postgres >/dev/null 2>&1; then
     useradd -r -g postgres -d /var/lib/silo/postgres -s /bin/bash postgres
 fi
 
-# Export PostgreSQL binary path globally
+# Export paths and port variables globally
 export PATH="/usr/lib/postgresql/18/bin:/app:$PATH"
+export PORT="${PORT:-8090}"
 
 # Auto-generate SECRET_KEY if empty
 if [ -z "$SECRET_KEY" ]; then
@@ -20,14 +21,14 @@ if [ -z "$MEILI_MASTER_KEY" ]; then
     export MEILI_MASTER_KEY="silo_aio_meili_default_key_32bytes!"
 fi
 
-# Create persistent appdata subdirectories and set ownership for the full tree
+# Create persistent appdata subdirectories and set ownership
 mkdir -p /var/lib/silo/postgres /var/lib/silo/redis /var/lib/silo/meilisearch /var/lib/silo/logs
 chown -R postgres:postgres /var/lib/silo
 
 # 1. Start Redis directly
 redis-server --daemonize yes
 
-# 2. Initialize PostgreSQL 18 with UTF-8 encoding inside persistent appdata
+# 2. Initialize PostgreSQL 18 inside persistent appdata
 if [ ! -f "/var/lib/silo/postgres/PG_VERSION" ]; then
     echo "No valid database cluster found. Preparing directory and initializing PostgreSQL..."
     rm -rf /var/lib/silo/postgres/* /var/lib/silo/postgres/.* 2>/dev/null || true
@@ -80,5 +81,5 @@ if [ -z "$SILO_EXEC" ] || [ ! -f "$SILO_EXEC" ]; then
     exit 1
 fi
 
-echo "Starting Silo server executable from: $SILO_EXEC"
+echo "Starting Silo server executable on port $PORT from: $SILO_EXEC"
 exec "$SILO_EXEC"
