@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Container version="2">
+  <Name>silo-aio</Name>
+  <Repository>ghcr.io/YOUR_GITHUB_USERNAME/silo-aio:latest</Repository>
+  <Registry>https://ghcr.io/YOUR_GITHUB_USERNAME/silo-aio</Registry>
+  <Network>bridge</Network>
+  <Overview>All-In-One single container release of Silo Server, bundling PostgreSQL and Redis.</Overview>
+  <Category>MediaApp:Video MediaApp:Music</Category>
+  <WebUI>http://[IP]:[PORT:8090]</WebUI>
+  <Icon>https://raw.githubusercontent.com/Silo-Server/silo-server/main/assets/icon.png</Icon>
+
+  <Config Name="Web Port" Target="8090" Default="8090" Mode="tcp" Type="Port" Display="always" Required="true"/>
+  <Config Name="Appdata Storage" Target="/var/lib/silo" Default="/mnt/user/appdata/silo" Mode="rw" Type="Path" Display="always" Required="true"/>
+  <Config Name="Media Storage" Target="/mnt/media" Default="/mnt/user/Media" Mode="rw" Type="Path" Display="always" Required="true"/>
+  <Config Name="Secret Key" Target="SECRET_KEY" Default="" Description="Optional custom encryption secret key" Type="Variable" Display="advanced"/>
+</Container>
