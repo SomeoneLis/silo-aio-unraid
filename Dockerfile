@@ -8,7 +8,7 @@ ENV PORT=8090
 ENV DATABASE_URL=postgres://silo:silo_password@127.0.0.1:5432/silo?sslmode=disable
 ENV REDIS_URL=redis://127.0.0.1:6379
 
-# 1. Install PostgreSQL 18, Redis, FFmpeg, libvips, GPU drivers, git, and Node.js 20 (NodeSource)
+# 1. Install PostgreSQL 18, Redis, FFmpeg, libvips, GPU drivers, git, and Node.js 20
 RUN apt-get update && apt-get install -y --no-install-recommends curl gnupg ca-certificates \
     && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /etc/apt/trusted.gpg.d/postgresql.gpg \
     && echo "deb http://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
@@ -48,6 +48,9 @@ RUN mkdir -p /app \
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD curl -f http://localhost:8090/ || exit 1
 
 EXPOSE 8090 7700
 ENTRYPOINT ["/entrypoint.sh"]
