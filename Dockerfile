@@ -8,29 +8,32 @@ ENV PORT=8090
 ENV DATABASE_URL=postgres://silo:silo_password@127.0.0.1:5432/silo?sslmode=disable
 ENV REDIS_URL=redis://127.0.0.1:6379
 
-# 1. Install PostgreSQL 18, Redis, FFmpeg, libvips, and GPU drivers
-RUN apt-get update && apt-get install -y curl gnupg ca-certificates \
+# 1. Install PostgreSQL 18, Redis, FFmpeg, libvips, GPU drivers, git, nodejs, npm with minimal footprint
+RUN apt-get update && apt-get install -y --no-install-recommends curl gnupg ca-certificates \
     && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /etc/apt/trusted.gpg.d/postgresql.gpg \
     && echo "deb http://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
-    && apt-get update && apt-get install -y \
+    && apt-get update && apt-get install -y --no-install-recommends \
     postgresql-18 \
     postgresql-18-pgvector \
     redis-server \
     ffmpeg \
     libvips42 \
     libvips-tools \
-    va-driver-all \
-    mesa-va-drivers \
     intel-media-va-driver \
-    tar \
+    mesa-va-drivers \
+    git \
+    nodejs \
+    npm \
     findutils \
-    && rm -rf /var/lib/apt/lists/*
+    tar \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # 2. Install Meilisearch static binary
 RUN curl -sL https://github.com/meilisearch/meilisearch/releases/download/v1.13.0/meilisearch-linux-amd64 -o /usr/local/bin/meilisearch \
     && chmod +x /usr/local/bin/meilisearch
 
-# 3. Copy official image assets and extract Silo binary
+# 3. Extract Silo application assets
 COPY --from=silo-official / /silo-src/
 RUN mkdir -p /app \
     && SILO_BIN=$(find /silo-src -type f \( -name "silo" -o -name "silo-server" \) | head -n 1) \
