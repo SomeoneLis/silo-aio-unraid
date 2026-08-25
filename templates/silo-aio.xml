@@ -4,13 +4,26 @@
   <Repository>ghcr.io/someonelis/silo-aio:latest</Repository>
   <Registry>https://ghcr.io/someonelis/silo-aio</Registry>
   <Network>bridge</Network>
-  <Overview>All-In-One single container release of Silo Server, bundling PostgreSQL and Redis.</Overview>
+  <Overview>All-In-One single container release of Silo Server, bundling PostgreSQL, Redis, Meilisearch, and hardware acceleration drivers (Nvidia, Intel, AMD).</Overview>
   <Category>MediaApp:Video MediaApp:Music</Category>
   <WebUI>http://[IP]:[PORT:8090]</WebUI>
   <Icon>https://raw.githubusercontent.com/Silo-Server/silo-server/main/assets/icon.png</Icon>
 
+  <!-- Ports -->
   <Config Name="Web Port" Target="8090" Default="8090" Mode="tcp" Type="Port" Display="always" Required="true"/>
+  <Config Name="Meilisearch Port" Target="7700" Default="7700" Mode="tcp" Type="Port" Display="advanced" Required="false"/>
+
+  <!-- Path Mappings -->
   <Config Name="Appdata Storage" Target="/var/lib/silo" Default="/mnt/user/appdata/silo" Mode="rw" Type="Path" Display="always" Required="true"/>
   <Config Name="Media Storage" Target="/mnt/media" Default="/mnt/user/Media" Mode="rw" Type="Path" Display="always" Required="true"/>
-  <Config Name="Secret Key" Target="SECRET_KEY" Default="" Description="Optional custom encryption secret key" Type="Variable" Display="advanced"/>
+  <Config Name="Transcode Cache" Target="/tmp/silo-transcode" Default="/tmp/silo-transcode" Mode="rw" Type="Path" Display="always" Required="false"/>
+
+  <!-- GPU Device Mapping (Intel / AMD VA-API / Quick Sync) -->
+  <Config Name="Intel / AMD GPU Device" Target="/dev/dri" Default="/dev/dri" Mode="" Type="Device" Display="always" Required="false"/>
+
+  <!-- Environment Variables -->
+  <Config Name="NVIDIA Visible Devices" Target="NVIDIA_VISIBLE_DEVICES" Default="all" Description="Set to 'all' or GPU UUID for NVENC hardware transcoding" Type="Variable" Display="always" Required="false"/>
+  <Config Name="NVIDIA Driver Capabilities" Target="NVIDIA_DRIVER_CAPABILITIES" Default="all" Description="Required for NVIDIA NVENC/NVDEC transcoding" Type="Variable" Display="always" Required="false"/>
+  <Config Name="Secret Key" Target="SECRET_KEY" Default="" Description="Encryption key for credentials (auto-generated if empty)" Type="Variable" Display="advanced"/>
+  <Config Name="Meilisearch Master Key" Target="MEILI_MASTER_KEY" Default="" Description="Custom Meilisearch key (auto-generated if empty)" Type="Variable" Display="advanced"/>
 </Container>
