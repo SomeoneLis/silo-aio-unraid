@@ -3,19 +3,23 @@ FROM ghcr.io/silo-server/silo-server:latest AS silo-official
 FROM debian:bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
+ENV PATH="/usr/lib/postgresql/18/bin:$PATH"
 ENV DATABASE_URL=postgres://silo:silo_password@127.0.0.1:5432/silo?sslmode=disable
 ENV REDIS_URL=redis://127.0.0.1:6379
 
-# Install PostgreSQL, Redis, FFmpeg, and Intel/AMD GPU drivers
-RUN apt-get update && apt-get install -y \
-    postgresql postgresql-contrib \
+# Install prerequisites & add PostgreSQL Official Repository for PG18 + pgvector
+RUN apt-get update && apt-get install -y curl gnupg lsb-release \
+    && echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb-release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+    && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /etc/apt/trusted.gpg.d/postgresql.gpg \
+    && apt-get update && apt-get install -y \
+    postgresql-18 \
+    postgresql-18-pgvector \
     redis-server \
     ffmpeg \
     va-driver-all \
     mesa-va-drivers \
     intel-media-va-driver \
     ca-certificates \
-    curl \
     tar \
     && rm -rf /var/lib/apt/lists/*
 
