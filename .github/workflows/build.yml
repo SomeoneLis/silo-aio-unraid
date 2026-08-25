@@ -41,5 +41,3 @@ jobs:
             ghcr.io/${{ env.REPO_OWNER }}/silo-aio:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
