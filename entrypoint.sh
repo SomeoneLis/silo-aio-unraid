@@ -21,19 +21,21 @@ if [ -z "$MEILI_MASTER_KEY" ]; then
 fi
 
 # Create persistent appdata subdirectories and assign ownership
-mkdir -p /var/lib/silo/postgres /var/lib/silo/redis /var/lib/silo/meilisearch
+mkdir -p /var/lib/silo/postgres /var/lib/silo/redis /var/lib/silo/meilisearch /var/lib/silo/logs
 chown -R postgres:postgres /var/lib/silo/postgres
 
-# 1. Start Redis
-service redis-server start
+# 1. Start Redis directly
+redis-server --daemonize yes
 
-# 2. Initialize and start PostgreSQL 18 inside persistent appdata (/var/lib/silo/postgres)
-if [ ! -s "/var/lib/silo/postgres/PG_VERSION" ]; then
-    echo "Initializing new PostgreSQL database cluster in appdata..."
-    su postgres -c "/usr/lib/postgresql/18/bin/initdb -D /var/lib/silo/postgres"
+# 2. Initialize PostgreSQL 18 with UTF-8 encoding inside persistent appdata
+if [ ! -f "/var/lib/silo/postgres/PG_VERSION" ]; then
+    echo "No valid database cluster found. Preparing directory and initializing PostgreSQL..."
+    rm -rf /var/lib/silo/postgres/* /var/lib/silo/postgres/.* 2>/dev/null || true
+    chown -R postgres:postgres /var/lib/silo/postgres
+    su postgres -c "/usr/lib/postgresql/18/bin/initdb -D /var/lib/silo/postgres --locale=C.UTF-8 --encoding=UTF8"
 fi
 
-su postgres -c "/usr/lib/postgresql/18/bin/pg_ctl -D /var/lib/silo/postgres -l /var/lib/silo/postgres/logfile start"
+su postgres -c "/usr/lib/postgresql/18/bin/pg_ctl -D /var/lib/silo/postgres -l /var/lib/silo/logs/pg.log start"
 
 # 3. Wait for PostgreSQL readiness
 until /usr/lib/postgresql/18/bin/pg_isready -h 127.0.0.1 -p 5432; do
@@ -49,7 +51,7 @@ su postgres -c "/usr/lib/postgresql/18/bin/psql -h 127.0.0.1 -d silo -c \"CREATE
 # 5. Start Meilisearch in background
 meilisearch --db-path /var/lib/silo/meilisearch --http-addr 127.0.0.1:7700 --master-key "$MEILI_MASTER_KEY" --no-analytics &
 
-# 6. Polling loop: Wait until Silo creates the settings table before injecting Meilisearch credentials
+# 6. Polling loop: Inject Meilisearch credentials once Silo creates settings table
 (
   for i in {1..30}; do
     sleep 3
