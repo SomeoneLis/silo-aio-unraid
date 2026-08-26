@@ -12,12 +12,12 @@
   <Support>https://github.com/Silo-Server/silo-server/issues</Support>
   <TemplateURL>https://raw.githubusercontent.com/SomeoneLis/silo-aio-unraid/main/templates/silo-aio.xml</TemplateURL>
   <Shell>bash</Shell>
-  <Date>2026-08-25T17:29:48Z</Date>
+  <Date>2026-08-26</Date>
   <Changes>
 ### 2026-08-26
-- Persisted Meilisearch master key and PostgreSQL password to appdata (no more public default credentials).
+- Refactored process supervision to s6-overlay v3.
+- Persisted Meilisearch master key and PostgreSQL password to appdata.
 - Scoped appdata ownership fixes to avoid slow recursive chown on every boot.
-- Healthcheck now verifies PostgreSQL, Redis, and Meilisearch in addition to the web UI.
 - Meilisearch settings injection now logs to /var/lib/silo/logs/meili-inject.log.
 
 ### Initial release
