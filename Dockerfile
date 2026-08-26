@@ -5,7 +5,9 @@ FROM debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PATH="/usr/lib/postgresql/18/bin:/app:$PATH"
 ENV PORT=8090
-ENV DATABASE_URL=postgres://silo:silo_password@127.0.0.1:5432/silo?sslmode=disable
+# NOTE: DATABASE_URL / MEILI / PG credentials are generated and exported at runtime
+# by entrypoint.sh (persisted under /var/lib/silo). They are intentionally NOT baked
+# into the image so no secret ends up in a public image layer.
 ENV REDIS_URL=redis://127.0.0.1:6379
 
 # 1. Install PostgreSQL 18, Redis, FFmpeg, libvips, GPU drivers, git, and Node.js 20
@@ -49,8 +51,14 @@ RUN mkdir -p /app \
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD curl -f http://localhost:8090/ || exit 1
+# Healthcheck verifies the web app AND the bundled data services, so a dead
+# Postgres/Redis/Meili marks the container unhealthy instead of silently degrading.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD curl -f http://localhost:8090/ >/dev/null 2>&1 \
+      && /usr/lib/postgresql/18/bin/pg_isready -h 127.0.0.1 -p 5432 >/dev/null 2>&1 \
+      && redis-cli ping >/dev/null 2>&1 \
+      && curl -f http://127.0.0.1:7700/health >/dev/null 2>&1 \
+      || exit 1
 
 EXPOSE 8090 7700
 ENTRYPOINT ["/entrypoint.sh"]
