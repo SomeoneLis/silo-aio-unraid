@@ -1,0 +1,2 @@
+#!/command/with-contenv bash
+exec su postgres -c "/usr/lib/postgresql/18/bin/postgres -D /var/lib/silo/postgres"
