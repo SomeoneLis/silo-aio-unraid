@@ -33,11 +33,9 @@ load_or_create_key() {
 SECRET_KEY="$(load_or_create_key /var/lib/silo/secret.key 48 "$SECRET_KEY")"
 MEILI_MASTER_KEY="$(load_or_create_key /var/lib/silo/meili.key 48 "$MEILI_MASTER_KEY")"
 PG_PASSWORD="$(load_or_create_key /var/lib/silo/pgpass.key 32 "$PG_PASSWORD")"
-# Separate password for the postgres bootstrap superuser (needed now that local
-# auth is scram, not trust). Never exposed to the app; used only for provisioning.
 PG_SUPER_PASSWORD="$(load_or_create_key /var/lib/silo/pgsuper.key 32 "$PG_SUPER_PASSWORD")"
 
-# --- Write the resolved runtime environment to a file the service scripts source. ---
+# --- Write runtime environment ---
 RUNTIME_ENV="/var/lib/silo/.runtime-env"
 cat > "$RUNTIME_ENV" <<EOF
 export SECRET_KEY='${SECRET_KEY}'
@@ -48,7 +46,7 @@ export PORT='${PORT:-8090}'
 EOF
 chmod 600 "$RUNTIME_ENV" 2>/dev/null || true
 
-# --- Ownership: scope it, don't recursively chown the whole appdata every boot ---
+# --- Ownership ---
 chown postgres:postgres /var/lib/silo /var/lib/silo/postgres \
     /var/lib/silo/redis /var/lib/silo/meilisearch /var/lib/silo/logs 2>/dev/null || true
 if [ "$(stat -c '%U' "$PGDATA" 2>/dev/null)" != "postgres" ]; then
@@ -63,22 +61,21 @@ if [ -f "$PG_LOG" ] && [ "$(stat -c%s "$PG_LOG" 2>/dev/null || echo 0)" -gt 5242
     chown postgres:postgres "$PG_LOG"
 fi
 
-# Initialize PostgreSQL 18 with scram-sha-256 auth from the start (first run only).
-# --auth-local/--auth-host set the cluster's default auth method to password-based,
-# so the socket is never a passwordless 'trust' door.
-FRESH_CLUSTER=0
+# Initialize PostgreSQL 18 with scram-sha-256 auth and superuser pwfile on first run
 if [ ! -f "$PGDATA/PG_VERSION" ]; then
     echo "No valid database cluster found. Initializing PostgreSQL (scram-sha-256 auth)..."
     rm -rf "$PGDATA"/* "$PGDATA"/.* 2>/dev/null || true
     chown -R postgres:postgres "$PGDATA"
+    PWFILE="/tmp/.pgpass_init"
+    printf '%s' "$PG_SUPER_PASSWORD" > "$PWFILE"
+    chown postgres:postgres "$PWFILE"
+    chmod 600 "$PWFILE"
     su postgres -c "$PGBIN/initdb -D $PGDATA --locale=C.UTF-8 --encoding=UTF8 \
-        --auth-local=scram-sha-256 --auth-host=scram-sha-256"
-    FRESH_CLUSTER=1
+        --auth-local=scram-sha-256 --auth-host=scram-sha-256 --pwfile=$PWFILE"
+    rm -f "$PWFILE"
 fi
 
-# --- Enforce a hardened pg_hba.conf on every boot (covers existing clusters too). ---
-# Only local socket and loopback TCP are allowed, and all require scram-sha-256.
-# No 'trust', no non-loopback access.
+# --- Enforce hardened pg_hba.conf ---
 HBA="$PGDATA/pg_hba.conf"
 cat > "$HBA" <<'EOF'
 # Managed by silo-aio init. Password auth only; loopback-only.
@@ -94,7 +91,7 @@ if ! grep -q "^password_encryption = scram-sha-256" "$PGDATA/postgresql.conf" 2>
     echo "password_encryption = scram-sha-256" >> "$PGDATA/postgresql.conf"
 fi
 
-# Start PG temporarily to provision roles/db/extensions, then stop it.
+# Start PG temporarily to provision roles/db/extensions, then stop it
 su postgres -c "$PGBIN/pg_ctl -D $PGDATA -l $PGDATA/logfile -w start"
 
 until "$PGBIN/pg_isready" -h 127.0.0.1 -p 5432; do
@@ -102,63 +99,30 @@ until "$PGBIN/pg_isready" -h 127.0.0.1 -p 5432; do
   sleep 1
 done
 
-# On a fresh cluster the bootstrap superuser has no password yet, and local auth is
-# now scram — so the very first connection must go through the socket as the postgres
-# OS user, which scram will challenge. To set the superuser password without a
-# chicken-and-egg lockout, use a single-transaction local connection via peer is not
-# available; instead we briefly allow the postgres OS user in and set its password.
-# pg_ctl started the server reading the hardened hba, but the postgres superuser role
-# still needs a password. Set it using a local socket connection that scram will accept
-# once the password exists — so we set it on the very first boot using a trusted
-# one-shot: temporarily relax to allow the initial ALTER, then re-harden.
-if [ "$FRESH_CLUSTER" -eq 1 ]; then
-    echo "Setting postgres superuser password (first run)..."
-    # Temporarily allow a trusted local connection ONLY to set the superuser password.
-    cat > "$HBA" <<'EOF'
-local   all             postgres                                trust
-local   all             all                                     scram-sha-256
-host    all             all             127.0.0.1/32            scram-sha-256
-host    all             all             ::1/128                 scram-sha-256
-EOF
-    chown postgres:postgres "$HBA"; chmod 600 "$HBA"
-    su postgres -c "$PGBIN/pg_ctl -D $PGDATA reload"
-    sleep 1
-    su postgres -c "$PGBIN/psql -c \"ALTER USER postgres WITH PASSWORD '${PG_SUPER_PASSWORD}';\""
-    # Re-harden immediately: postgres now uses scram like everyone else.
-    cat > "$HBA" <<'EOF'
-local   all             all                                     scram-sha-256
-host    all             all             127.0.0.1/32            scram-sha-256
-host    all             all             ::1/128                 scram-sha-256
-EOF
-    chown postgres:postgres "$HBA"; chmod 600 "$HBA"
-    su postgres -c "$PGBIN/pg_ctl -D $PGDATA reload"
-    sleep 1
-fi
-
-# From here on, all provisioning connects over TCP as postgres with its password.
+# Provision roles/database using PGPASSWORD
 export PGPASSWORD="$PG_SUPER_PASSWORD"
 PSQL_SUPER="$PGBIN/psql -h 127.0.0.1 -U postgres"
 
-# --- Provision the 'silo' role. Create if missing, then (re)apply password. ---
-if ! su postgres -c "PGPASSWORD='$PG_SUPER_PASSWORD' $PSQL_SUPER -tAc \"SELECT 1 FROM pg_roles WHERE rolname='silo';\"" | grep -q 1; then
+# --- Provision the 'silo' role ---
+if ! su postgres -c "PGPASSWORD='$PG_SUPER_PASSWORD' $PSQL_SUPER -tAc \"SELECT 1 FROM pg_roles WHERE rolname='silo';\"" 2>/dev/null | grep -q 1; then
     echo "Creating 'silo' role..."
     su postgres -c "PGPASSWORD='$PG_SUPER_PASSWORD' $PSQL_SUPER -c \"CREATE USER silo WITH PASSWORD '${PG_PASSWORD}';\""
 fi
 su postgres -c "PGPASSWORD='$PG_SUPER_PASSWORD' $PSQL_SUPER -c \"ALTER USER silo WITH PASSWORD '${PG_PASSWORD}';\""
 
-# --- Provision database. Only CREATE if it does not already exist. ---
-if ! su postgres -c "PGPASSWORD='$PG_SUPER_PASSWORD' $PSQL_SUPER -tAc \"SELECT 1 FROM pg_database WHERE datname='silo';\"" | grep -q 1; then
+# --- Provision database ---
+if ! su postgres -c "PGPASSWORD='$PG_SUPER_PASSWORD' $PSQL_SUPER -tAc \"SELECT 1 FROM pg_database WHERE datname='silo';\"" 2>/dev/null | grep -q 1; then
     echo "Creating 'silo' database..."
     su postgres -c "PGPASSWORD='$PG_SUPER_PASSWORD' $PSQL_SUPER -c \"CREATE DATABASE silo OWNER silo;\""
 fi
 
-# --- Wait until the 'silo' database really accepts connections before touching it. ---
+# --- Wait until database accepts connections ---
 until su postgres -c "PGPASSWORD='$PG_SUPER_PASSWORD' $PSQL_SUPER -d silo -c 'SELECT 1;'" >/dev/null 2>&1; do
     echo "Waiting for 'silo' database to become available..."
     sleep 1
 done
 
-# --- Extensions and cleanup. Guarded so a transient error can't abort init under set -e. ---
+# --- Extensions and cleanup ---
 su postgres -c "PGPASSWORD='$PG_SUPER_PASSWORD' $PSQL_SUPER -d silo -c \"CREATE EXTENSION IF NOT EXISTS vector; CREATE EXTENSION IF NOT EXISTS citext;\"" || echo "WARNING: extension creation returned non-zero."
 su postgres -c "PGPASSWORD='$PG_SUPER_PASSWORD' $PSQL_SUPER -d silo -c \"DELETE FROM settings WHERE key = 'notifications.web_push.vapid_keypair';\"" 2>/dev/null || true
 
