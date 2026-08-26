@@ -12,7 +12,7 @@ export PORT="${PORT:-8090}"
 
 mkdir -p /var/lib/silo/postgres /var/lib/silo/redis /var/lib/silo/meilisearch /var/lib/silo/logs
 
-# --- Helper: generate-or-load a persisted secret file ---
+# --- Helper: generate-or-load a persisted secret file (alphanumeric only) ---
 load_or_create_key() {
     local file="$1" length="$2" override="$3" val
     if [ -f "$file" ] && [ -s "$file" ]; then
@@ -72,12 +72,15 @@ until /usr/lib/postgresql/18/bin/pg_isready -h 127.0.0.1 -p 5432; do
   sleep 1
 done
 
+# The password is generated from [A-Za-z0-9] only, so it is safe to embed directly
+# in a single-quoted SQL literal (no quotes/backslashes/specials to escape).
+
 # --- Provision role. Create only if missing, then (re)apply the password idempotently. ---
 if ! su postgres -c "/usr/lib/postgresql/18/bin/psql -h 127.0.0.1 -tAc \"SELECT 1 FROM pg_roles WHERE rolname='silo';\"" | grep -q 1; then
     echo "Creating 'silo' role..."
-    su postgres -c "/usr/lib/postgresql/18/bin/psql -h 127.0.0.1 -v pw=\"'$PG_PASSWORD'\" -c \"CREATE USER silo WITH PASSWORD :pw;\""
+    su postgres -c "/usr/lib/postgresql/18/bin/psql -h 127.0.0.1 -c \"CREATE USER silo WITH PASSWORD '${PG_PASSWORD}';\""
 fi
-su postgres -c "/usr/lib/postgresql/18/bin/psql -h 127.0.0.1 -v pw=\"'$PG_PASSWORD'\" -c \"ALTER USER silo WITH PASSWORD :pw;\""
+su postgres -c "/usr/lib/postgresql/18/bin/psql -h 127.0.0.1 -c \"ALTER USER silo WITH PASSWORD '${PG_PASSWORD}';\""
 
 # --- Provision database. Only CREATE if it does not already exist. ---
 if ! su postgres -c "/usr/lib/postgresql/18/bin/psql -h 127.0.0.1 -tAc \"SELECT 1 FROM pg_database WHERE datname='silo';\"" | grep -q 1; then
