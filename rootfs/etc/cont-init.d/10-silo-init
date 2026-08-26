@@ -33,8 +33,6 @@ MEILI_MASTER_KEY="$(load_or_create_key /var/lib/silo/meili.key 48 "$MEILI_MASTER
 PG_PASSWORD="$(load_or_create_key /var/lib/silo/pgpass.key 32 "$PG_PASSWORD")"
 
 # --- Write the resolved runtime environment to a file the service scripts source. ---
-# This is explicit and version-independent, avoiding reliance on s6's
-# container_environment path (which behaves differently across s6-overlay versions).
 RUNTIME_ENV="/var/lib/silo/.runtime-env"
 cat > "$RUNTIME_ENV" <<EOF
 export SECRET_KEY='${SECRET_KEY}'
@@ -79,6 +77,13 @@ done
 
 # The password is generated from [A-Za-z0-9] only, so it is safe to embed directly
 # in a single-quoted SQL literal (no quotes/backslashes/specials to escape).
+
+# --- Create a 'root' role so local socket connections (which authenticate as the
+#     container's OS user 'root' under trust auth) succeed. Loopback-only, harmless. ---
+if ! su postgres -c "/usr/lib/postgresql/18/bin/psql -h 127.0.0.1 -tAc \"SELECT 1 FROM pg_roles WHERE rolname='root';\"" | grep -q 1; then
+    echo "Creating 'root' role for local socket connections..."
+    su postgres -c "/usr/lib/postgresql/18/bin/psql -h 127.0.0.1 -c \"CREATE ROLE root WITH LOGIN SUPERUSER;\""
+fi
 
 # --- Provision role. Create only if missing, then (re)apply the password idempotently. ---
 if ! su postgres -c "/usr/lib/postgresql/18/bin/psql -h 127.0.0.1 -tAc \"SELECT 1 FROM pg_roles WHERE rolname='silo';\"" | grep -q 1; then
