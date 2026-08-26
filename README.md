@@ -130,6 +130,3 @@ Open `http://[YOUR-UNRAID-IP]:8090` in a browser to create your primary administ
 
 Released under the AGPL-3.0 license. See [`LICENSE`](https://www.google.com/search?q=https://github.com/SomeoneLis/silo-aio-unraid/blob/main/LICENSE).
 
-```
-
-```
