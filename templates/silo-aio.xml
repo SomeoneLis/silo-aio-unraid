@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Container version="2">
-  <Name>silo-aio</Name>
+  <n>silo-aio</n>
   <Repository>ghcr.io/someonelis/silo-aio:latest</Repository>
   <Registry>https://ghcr.io/someonelis/silo-aio</Registry>
   <Network>bridge</Network>
@@ -10,8 +10,19 @@
   <Icon>https://raw.githubusercontent.com/Silo-Server/silo-server/main/assets/icon.png</Icon>
   <Project>https://github.com/Silo-Server/silo-server</Project>
   <Support>https://github.com/Silo-Server/silo-server/issues</Support>
+  <TemplateURL>https://raw.githubusercontent.com/SomeoneLis/silo-aio-unraid/main/templates/silo-aio.xml</TemplateURL>
   <Shell>bash</Shell>
-  <Date>2026-08-25</Date>
+  <Date>2026-08-25T17:29:48Z</Date>
+  <Changes>
+### 2026-08-26
+- Persisted Meilisearch master key and PostgreSQL password to appdata (no more public default credentials).
+- Scoped appdata ownership fixes to avoid slow recursive chown on every boot.
+- Healthcheck now verifies PostgreSQL, Redis, and Meilisearch in addition to the web UI.
+- Meilisearch settings injection now logs to /var/lib/silo/logs/meili-inject.log.
+
+### Initial release
+- All-In-One Silo Server container: PostgreSQL 18 + pgvector, Redis, Meilisearch, and Intel/AMD/NVIDIA hardware acceleration.
+  </Changes>
 
   <!-- Ports -->
   <Config Name="Web Port" Target="8090" Default="8090" Mode="tcp" Type="Port" Display="always" Required="true" Description="Web interface port for Silo Server UI and API access."/>
