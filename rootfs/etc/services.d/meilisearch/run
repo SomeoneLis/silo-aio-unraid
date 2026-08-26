@@ -1,0 +1,6 @@
+#!/command/with-contenv bash
+exec meilisearch \
+  --db-path /var/lib/silo/meilisearch \
+  --http-addr 127.0.0.1:7700 \
+  --master-key "$MEILI_MASTER_KEY" \
+  --no-analytics
