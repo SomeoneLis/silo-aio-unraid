@@ -1,0 +1,83 @@
+#!/command/with-contenv bash
+set -e
+
+# Ensure postgres user and group exist in system
+if ! id -u postgres >/dev/null 2>&1; then
+    groupadd -r postgres 2>/dev/null || true
+    useradd -r -g postgres -d /var/lib/silo/postgres -s /bin/bash postgres
+fi
+
+export PATH="/usr/lib/postgresql/18/bin:/app:$PATH"
+export PORT="${PORT:-8090}"
+
+mkdir -p /var/lib/silo/postgres /var/lib/silo/redis /var/lib/silo/meilisearch /var/lib/silo/logs
+
+# --- Helper: generate-or-load a persisted secret file ---
+load_or_create_key() {
+    local file="$1" length="$2" override="$3" val
+    if [ -f "$file" ] && [ -s "$file" ]; then
+        val="$(tr -d '\r\n' < "$file")"
+    elif [ -n "$override" ]; then
+        val="$override"
+        printf '%s' "$val" > "$file"
+    else
+        val="$(tr -dc A-Za-z0-9 </dev/urandom | head -c "$length")"
+        printf '%s' "$val" > "$file"
+    fi
+    chmod 600 "$file" 2>/dev/null || true
+    printf '%s' "$val"
+}
+
+SECRET_KEY="$(load_or_create_key /var/lib/silo/secret.key 48 "$SECRET_KEY")"
+MEILI_MASTER_KEY="$(load_or_create_key /var/lib/silo/meili.key 48 "$MEILI_MASTER_KEY")"
+PG_PASSWORD="$(load_or_create_key /var/lib/silo/pgpass.key 32 "$PG_PASSWORD")"
+
+# Persist the resolved environment so every supervised service sees it via with-contenv
+mkdir -p /run/s6/container_environment
+printf '%s' "$SECRET_KEY"       > /run/s6/container_environment/SECRET_KEY
+printf '%s' "$MEILI_MASTER_KEY" > /run/s6/container_environment/MEILI_MASTER_KEY
+printf '%s' "postgres://silo:${PG_PASSWORD}@127.0.0.1:5432/silo?sslmode=disable" > /run/s6/container_environment/DATABASE_URL
+printf '%s' "${REDIS_URL:-redis://127.0.0.1:6379}" > /run/s6/container_environment/REDIS_URL
+printf '%s' "${PORT:-8090}"     > /run/s6/container_environment/PORT
+
+# --- Ownership: scope it, don't recursively chown the whole appdata every boot ---
+chown postgres:postgres /var/lib/silo /var/lib/silo/postgres \
+    /var/lib/silo/redis /var/lib/silo/meilisearch /var/lib/silo/logs 2>/dev/null || true
+if [ "$(stat -c '%U' /var/lib/silo/postgres 2>/dev/null)" != "postgres" ]; then
+    chown -R postgres:postgres /var/lib/silo/postgres
+fi
+
+# Truncate PostgreSQL log if larger than 50MB
+PG_LOG="/var/lib/silo/postgres/logfile"
+if [ -f "$PG_LOG" ] && [ "$(stat -c%s "$PG_LOG" 2>/dev/null || echo 0)" -gt 52428800 ]; then
+    echo "PostgreSQL log exceeds 50MB. Truncating..."
+    tail -n 1000 "$PG_LOG" > "${PG_LOG}.tmp" && mv "${PG_LOG}.tmp" "$PG_LOG"
+    chown postgres:postgres "$PG_LOG"
+fi
+
+# Initialize PostgreSQL 18 inside persistent appdata (first run only)
+if [ ! -f "/var/lib/silo/postgres/PG_VERSION" ]; then
+    echo "No valid database cluster found. Initializing PostgreSQL..."
+    rm -rf /var/lib/silo/postgres/* /var/lib/silo/postgres/.* 2>/dev/null || true
+    chown -R postgres:postgres /var/lib/silo/postgres
+    su postgres -c "/usr/lib/postgresql/18/bin/initdb -D /var/lib/silo/postgres --locale=C.UTF-8 --encoding=UTF8"
+fi
+
+# Start PG temporarily to provision role/db/extensions, then stop it.
+# The supervised postgres service will bring it up for real afterwards.
+su postgres -c "/usr/lib/postgresql/18/bin/pg_ctl -D /var/lib/silo/postgres -l /var/lib/silo/postgres/logfile -w start"
+
+until /usr/lib/postgresql/18/bin/pg_isready -h 127.0.0.1 -p 5432; do
+  echo "Waiting for PostgreSQL database..."
+  sleep 1
+done
+
+su postgres -c "/usr/lib/postgresql/18/bin/psql -h 127.0.0.1 -v pw=\"'$PG_PASSWORD'\" -c \"CREATE USER silo WITH PASSWORD :pw;\"" 2>/dev/null || true
+su postgres -c "/usr/lib/postgresql/18/bin/psql -h 127.0.0.1 -v pw=\"'$PG_PASSWORD'\" -c \"ALTER USER silo WITH PASSWORD :pw;\"" 2>/dev/null || true
+su postgres -c "/usr/lib/postgresql/18/bin/psql -h 127.0.0.1 -c \"CREATE DATABASE silo OWNER silo;\"" 2>/dev/null || true
+su postgres -c "/usr/lib/postgresql/18/bin/psql -h 127.0.0.1 -d silo -c \"CREATE EXTENSION IF NOT EXISTS vector; CREATE EXTENSION IF NOT EXISTS citext;\""
+su postgres -c "/usr/lib/postgresql/18/bin/psql -h 127.0.0.1 -d silo -c \"DELETE FROM settings WHERE key = 'notifications.web_push.vapid_keypair';\"" 2>/dev/null || true
+
+su postgres -c "/usr/lib/postgresql/18/bin/pg_ctl -D /var/lib/silo/postgres -m fast -w stop"
+
+echo "Init complete."
