@@ -11,10 +11,19 @@ fi
 export PATH="/usr/lib/postgresql/18/bin:/app:$PATH"
 export PORT="${PORT:-8090}"
 
-# Auto-generate SECRET_KEY if empty
-if [ -z "$SECRET_KEY" ]; then
-    export SECRET_KEY=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 48)
+# Create appdata base folder and manage persistent SECRET_KEY
+mkdir -p /var/lib/silo
+KEY_FILE="/var/lib/silo/secret.key"
+if [ -f "$KEY_FILE" ] && [ -s "$KEY_FILE" ]; then
+    export SECRET_KEY="$(cat "$KEY_FILE" | tr -d '\r\n')"
+elif [ -n "$SECRET_KEY" ]; then
+    echo "$SECRET_KEY" > "$KEY_FILE"
+else
+    NEW_KEY=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 48)
+    echo "$NEW_KEY" > "$KEY_FILE"
+    export SECRET_KEY="$NEW_KEY"
 fi
+chmod 600 "$KEY_FILE" 2>/dev/null || true
 
 # Fallback MEILI_MASTER_KEY
 if [ -z "$MEILI_MASTER_KEY" ]; then
@@ -56,6 +65,9 @@ done
 su postgres -c "/usr/lib/postgresql/18/bin/psql -h 127.0.0.1 -c \"CREATE USER silo WITH PASSWORD 'silo_password';\"" 2>/dev/null || true
 su postgres -c "/usr/lib/postgresql/18/bin/psql -h 127.0.0.1 -c \"CREATE DATABASE silo OWNER silo;\"" 2>/dev/null || true
 su postgres -c "/usr/lib/postgresql/18/bin/psql -h 127.0.0.1 -d silo -c \"CREATE EXTENSION IF NOT EXISTS vector; CREATE EXTENSION IF NOT EXISTS citext;\""
+
+# Auto-clear corrupted encrypted VAPID setting if present from previous key mismatches
+su postgres -c "/usr/lib/postgresql/18/bin/psql -h 127.0.0.1 -d silo -c \"DELETE FROM settings WHERE key = 'notifications.web_push.vapid_keypair';\"" 2>/dev/null || true
 
 # 5. Start Meilisearch in background
 meilisearch --db-path /var/lib/silo/meilisearch --http-addr 127.0.0.1:7700 --master-key "$MEILI_MASTER_KEY" --no-analytics &
