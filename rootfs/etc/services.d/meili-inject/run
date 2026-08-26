@@ -3,26 +3,38 @@
 [ -f /var/lib/silo/.runtime-env ] && . /var/lib/silo/.runtime-env
 
 INJECT_LOG="/var/lib/silo/logs/meili-inject.log"
+PSQL="/usr/lib/postgresql/18/bin/psql"
 
-for i in $(seq 1 30); do
+# Connect as the 'silo' role to the 'silo' DB over TCP, using the same password
+# the app uses. Parsed out of DATABASE_URL so there's a single source of truth.
+# DATABASE_URL format: postgres://silo:<password>@127.0.0.1:5432/silo?sslmode=disable
+PG_PASSWORD="$(printf '%s' "$DATABASE_URL" | sed -E 's#^postgres://silo:([^@]+)@.*#\1#')"
+export PGPASSWORD="$PG_PASSWORD"
+
+run_psql() {
+  "$PSQL" -h 127.0.0.1 -U silo -d silo "$@"
+}
+
+for i in $(seq 1 40); do
   sleep 3
-  if su postgres -c "/usr/lib/postgresql/18/bin/psql -h 127.0.0.1 -d silo -c \"SELECT 1 FROM settings LIMIT 1;\"" >/dev/null 2>&1; then
-    if su postgres -c "/usr/lib/postgresql/18/bin/psql -h 127.0.0.1 -d silo -c \"
+  # Wait until Silo's migrations have created the settings table.
+  if run_psql -tAc "SELECT to_regclass('public.settings');" 2>/dev/null | grep -q '^settings$'; then
+    if run_psql -c "
       INSERT INTO settings (key, value)
       VALUES
         ('search.provider', 'meilisearch'),
         ('search.meili_url', 'http://127.0.0.1:7700'),
         ('search.meili_key', '${MEILI_MASTER_KEY}')
       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
-    \"" >>"$INJECT_LOG" 2>&1; then
+    " >>"$INJECT_LOG" 2>&1; then
       echo "$(date -u '+%Y-%m-%dT%H:%M:%SZ') Meilisearch settings injected successfully." >>"$INJECT_LOG"
     else
       echo "$(date -u '+%Y-%m-%dT%H:%M:%SZ') WARNING: settings table present but injection failed (schema change?)." >>"$INJECT_LOG"
     fi
     break
   fi
-  if [ "$i" -eq 30 ]; then
-    echo "$(date -u '+%Y-%m-%dT%H:%M:%SZ') WARNING: settings table never appeared after 90s." >>"$INJECT_LOG"
+  if [ "$i" -eq 40 ]; then
+    echo "$(date -u '+%Y-%m-%dT%H:%M:%SZ') WARNING: settings table never appeared after 120s." >>"$INJECT_LOG"
   fi
 done
 
