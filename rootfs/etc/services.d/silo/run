@@ -1,0 +1,14 @@
+#!/command/with-contenv bash
+export PATH="/usr/lib/postgresql/18/bin:/app:$PATH"
+
+SILO_EXEC="/app/silo"
+if [ ! -f "$SILO_EXEC" ]; then
+    SILO_EXEC=$(which silo 2>/dev/null || which silo-server 2>/dev/null || find / -name "silo" -type f 2>/dev/null | head -n 1)
+fi
+if [ -z "$SILO_EXEC" ] || [ ! -f "$SILO_EXEC" ]; then
+    echo "ERROR: Could not locate Silo executable!"
+    exit 1
+fi
+
+echo "Starting Silo server on port ${PORT:-8090} from: $SILO_EXEC"
+exec "$SILO_EXEC"
