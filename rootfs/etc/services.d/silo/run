@@ -1,4 +1,7 @@
 #!/command/with-contenv bash
+# Load the resolved runtime environment written by 10-silo-init.
+[ -f /var/lib/silo/.runtime-env ] && . /var/lib/silo/.runtime-env
+
 export PATH="/usr/lib/postgresql/18/bin:/app:$PATH"
 
 SILO_EXEC="/app/silo"
