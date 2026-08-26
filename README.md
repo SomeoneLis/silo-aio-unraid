@@ -1,109 +1,135 @@
 # Silo Server AIO for Unraid
 
-An all-in-one Docker container and Unraid template for [Silo Server](https://github.com/SomeoneLis/silo-aio-unraid). This image packages the backend stack into a single container:
+An all-in-one Docker container and Unraid template for [Silo Server](https://github.com/SomeoneLis/silo-aio-unraid). This image packages the complete backend stack under `s6-overlay v3` process supervision into a single container:
 
 - **Silo Server** — core media application
-- **PostgreSQL 18** — with `pgvector` and `citext` extensions
-- **Redis** — in-memory caching
+- **PostgreSQL 18** — hardened with `scram-sha-256` authentication, `pgvector`, and `citext` extensions
+- **Redis** — in-memory caching engine
 - **Meilisearch v1.13.0** — full-text search engine
 - **Hardware acceleration drivers** — Intel Quick Sync, AMD VA-API, and NVIDIA NVENC/NVDEC
-- **Node.js 20.x & toolchain** — for on-demand Jellyfin Web UI generation
+- **Node.js 20.x & toolchain** — for on-demand Jellyfin Web UI compilation
+
+---
 
 ## Contents
 
 - [Features](#features)
 - [Installation on Unraid](#installation-on-unraid)
-- [Configuration reference](#configuration-reference)
-- [Hardware acceleration setup](#hardware-acceleration-setup)
-- [Post-installation steps](#post-installation-steps)
+- [Configuration Reference](#configuration-reference)
+- [Hardware Acceleration Setup](#hardware-acceleration-setup)
+- [Post-Installation Steps](#post-installation-steps)
 - [Troubleshooting](#troubleshooting)
 - [License](#license)
 
+---
+
 ## Features
 
-- **Zero-config database stack** — initializes PostgreSQL 18 with the required vector extensions, Redis, and Meilisearch on first boot.
-- **Persistent secret management** — generates and locks a permanent `secret.key` inside your Unraid appdata path, preserving encrypted settings across container rebuilds.
-- **Jellyfin compatibility** — ships with Node.js 20.x, git, and the build utilities needed to build and serve the optional Jellyfin Web UI proxy.
-- **Automated log rotation** — truncates PostgreSQL logs when they exceed 50 MB, preventing log overflow.
-- **Graceful shutdown** — intercepts container stop signals (`SIGTERM`/`SIGINT`) to cleanly stop PostgreSQL, Redis, and Meilisearch, avoiding database corruption.
+- **s6-Overlay v3 Supervision:** Independent process management for PostgreSQL, Redis, Meilisearch, and Silo with automatic restart and health monitoring.
+- **Zero-Trust Hardened Database:** Automatically initializes PostgreSQL 18 with enforced `scram-sha-256` password authentication, `pgvector`, and `citext` extensions on first boot.
+- **Persistent Key Management:** Generates and locks permanent keys (`secret.key`, `meili.key`, `pgpass.key`, `pgsuper.key`) inside your Unraid `appdata` path to preserve encrypted application settings across container updates.
+- **Seamless Transcoding Detection:** Ships with built-in FFmpeg path symlinking (`/usr/lib/jellyfin-ffmpeg/ffmpeg -> /usr/bin/ffmpeg`) so Silo detects hardware capabilities out-of-the-box.
+- **Jellyfin Compatibility Toolchain:** Includes Node.js 20.x, `git`, and build utilities required to build and serve the optional Jellyfin Web UI proxy.
+- **Performance Optimized:** Scoped appdata permissions prevent slow recursive `chown` operations on boot, and automated log rotation truncates PostgreSQL logs exceeding 50 MB.
+
+---
 
 ## Installation on Unraid
 
-### Current Method — Private app template
+### Private App Template (Recommended)
 
-Open the Unraid terminal (`>_`) from the WebUI and download the template. The two commands place the same file in the Community Applications private directory and the Docker Manager user-template directory, so the template appears under **Apps > Private Apps**:
+1. Open the **Unraid Terminal** (`>_`) from the WebUI.
+2. Download the template directly into your Unraid local template directories:
 
 ```bash
-curl -sL https://raw.githubusercontent.com/SomeoneLis/silo-aio-unraid/main/templates/silo-aio.xml \
+curl -sL [https://raw.githubusercontent.com/SomeoneLis/silo-aio-unraid/main/templates/silo-aio.xml](https://raw.githubusercontent.com/SomeoneLis/silo-aio-unraid/main/templates/silo-aio.xml) \
   -o /boot/config/plugins/community.applications/private/LTM/silo-aio.xml
-curl -sL https://raw.githubusercontent.com/SomeoneLis/silo-aio-unraid/main/templates/silo-aio.xml \
+curl -sL [https://raw.githubusercontent.com/SomeoneLis/silo-aio-unraid/main/templates/silo-aio.xml](https://raw.githubusercontent.com/SomeoneLis/silo-aio-unraid/main/templates/silo-aio.xml) \
   -o /boot/config/plugins/dockerMan/templates-user/my-silo-aio.xml
+
 ```
 
-Then go to **Apps > Private Apps**, select **silo-aio**, and click **Install**.
+3. Navigate to **Apps > Private Apps** in the Unraid WebUI, select **silo-aio**, and click **Install**.
 
+> **Note:** The GHCR image path (`ghcr.io/someonelis/silo-aio`) is lowercase as required by container registries. Repository and raw-file URLs use the canonical `SomeoneLis` casing and are case-sensitive—copy the commands exactly.
 
-> **Note:** The GHCR image path is lowercase (`someonelis`) because container registries normalize namespaces to lowercase. The GitHub repository and raw-file URLs above use the canonical `SomeoneLis` casing and are case-sensitive — copy them exactly.
+---
 
-## Configuration reference
+## Configuration Reference
 
-### Volume mappings
+### Volume Mappings
 
-| Host path | Container path | Mode | Description |
+| Host Path | Container Path | Mode | Description |
 | --- | --- | --- | --- |
-| `/mnt/user/appdata/silo` | `/var/lib/silo` | Read/Write | Persistent storage for PostgreSQL, Redis, Meilisearch indexes, and `secret.key`. |
+| `/mnt/user/appdata/silo` | `/var/lib/silo` | Read/Write | Persistent storage for PostgreSQL, Redis, Meilisearch indexes, and key files. |
 | `/mnt/user/Media/` | `/mnt/media` | Read-Only | Primary media share containing Movies and TV Shows. |
-| `/tmp/silo-transcode` | `/tmp/silo-transcode` | Read/Write | Temporary transcoding buffer, stored in RAM (`/tmp`). |
+| `/tmp/silo-transcode` | `/tmp/silo-transcode` | Read/Write | Temporary transcoding buffer stored in RAM (`/tmp`). |
 
-> **Memory note:** On servers with 16 GB of RAM or less, change the transcode host path from `/tmp/silo-transcode` to an SSD cache share (for example `/mnt/cache/appdata/silo/transcode`) to avoid exhausting system memory during transcodes.
+> **Memory Note:** On servers with 16 GB of RAM or less, change the transcode host path from `/tmp/silo-transcode` to an SSD cache share (e.g., `/mnt/cache/appdata/silo/transcode`) to avoid exhausting system memory during heavy transcodes.
 
-### Port mappings
+---
 
-| Host port | Container port | Protocol | Description |
+### Port Mappings
+
+| Host Port | Container Port | Protocol | Description |
 | --- | --- | --- | --- |
-| 8090 | 8090 | TCP | Web interface and API access. |
-| 7700 | 7700 | TCP | Meilisearch API (optional). |
+| `8090` | `8090` | TCP | Web interface and API access. |
+| `7700` | `7700` | TCP | Meilisearch API (Optional). |
 
-### Environment variables
+---
+
+### Environment Variables
 
 | Variable | Default | Description |
 | --- | --- | --- |
 | `PORT` | `8090` | Internal listening port for the Silo application. |
-| `SECRET_KEY` | *(auto-generated)* | Secures user tokens. Stored permanently in `/var/lib/silo/secret.key`. |
-| `MEILI_MASTER_KEY` | *(auto-generated)* | Master key for the internal Meilisearch service. |
-| `NVIDIA_DRIVER_CAPABILITIES` | `compute,video,utility` | Enables NVENC/NVDEC GPU transcoding. |
-| `NVIDIA_VISIBLE_DEVICES` | `all` | Selects target NVIDIA GPUs (`all` or a GPU UUID). |
+| `SECRET_KEY` | *(auto-generated)* | Key for securing user tokens. Stored permanently in `/var/lib/silo/secret.key`. |
+| `MEILI_MASTER_KEY` | *(auto-generated)* | Master key for internal Meilisearch service. Stored in `/var/lib/silo/meili.key`. |
+| `NVIDIA_DRIVER_CAPABILITIES` | `compute,video,utility` | Enables NVENC/NVDEC GPU transcoding capabilities. |
+| `NVIDIA_VISIBLE_DEVICES` | `all` | Selects target NVIDIA GPUs (`all` or a specific GPU UUID). |
 
-## Hardware acceleration setup
+---
+
+## Hardware Acceleration Setup
 
 ### Intel Quick Sync & AMD VA-API
 
-Pass the `/dev/dri` device through to the container. The Unraid template includes this by default.
+Pass the `/dev/dri` device through to the container. This device path is included by default in the Unraid template.
 
 ### NVIDIA GPUs
 
 1. Install the **Nvidia Driver** plugin from the Unraid Community Apps store.
 2. Keep `NVIDIA_DRIVER_CAPABILITIES` set to `compute,video,utility`.
-3. Keep `NVIDIA_VISIBLE_DEVICES` set to `all`, or enter a specific GPU UUID.
+3. Keep `NVIDIA_VISIBLE_DEVICES` set to `all` (or enter a specific GPU UUID).
 
-## Post-installation steps
+---
 
-### 1. Initial access
+## Post-Installation Steps
 
-Open `http://[YOUR-UNRAID-IP]:8090` in a browser to create your administrator account.
+### 1. Initial Access
 
-### 2. Enable Jellyfin app support (optional)
+Open `http://[YOUR-UNRAID-IP]:8090` in a browser to create your primary administrator account.
 
-1. In Silo, go to **Settings > Compatibility Proxies**.
+### 2. Enable Jellyfin App Support (Optional)
+
+1. In Silo, navigate to **Settings > Compatibility Proxies**.
 2. Enable **Jellyfin Proxy**.
-3. Click **Install Web UI**. The built-in Node.js 20 environment fetches and assembles the `jellyfin-web` assets.
+3. Click **Install Web UI**. The container's Node.js 20 environment will automatically fetch and build the `jellyfin-web` assets.
+
+---
 
 ## Troubleshooting
 
-- **Template doesn't appear under Private Apps** — confirm both `curl` commands completed without errors and that the `.xml` files exist at the two target paths. A 404 usually means the repository name was copied with the wrong casing.
-- **GPU transcoding not working** — verify `/dev/dri` is passed through (Intel/AMD) or the Nvidia Driver plugin is installed (NVIDIA), then check the container log for device-detection messages.
-- **Settings reset after a rebuild** — check that `/mnt/user/appdata/silo` is mapped Read/Write so `secret.key` persists.
+* **Template Doesn't Appear under Private Apps:** Confirm both `curl` commands completed without errors. A 404 error usually indicates the repository casing was entered incorrectly.
+* **GPU Transcoding Not Working:** Verify `/dev/dri` is passed through (Intel/AMD) or the Nvidia Driver plugin is installed (NVIDIA). Check the container log for device probe logs.
+* **Settings Reset After Container Rebuild:** Confirm `/mnt/user/appdata/silo` is mapped Read/Write so key files (`secret.key`, `pgpass.key`) persist across container updates.
+
+---
 
 ## License
 
-Released under the AGPL-3.0 license. See [`LICENSE`](https://github.com/SomeoneLis/silo-aio-unraid/blob/main/LICENSE).
+Released under the AGPL-3.0 license. See [`LICENSE`](https://www.google.com/search?q=https://github.com/SomeoneLis/silo-aio-unraid/blob/main/LICENSE).
+
+```
+
+```
