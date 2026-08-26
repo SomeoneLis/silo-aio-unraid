@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Container version="2">
-  <n>silo-aio</n>
+  <Name>silo-aio</Name>
   <Repository>ghcr.io/someonelis/silo-aio:latest</Repository>
   <Registry>https://ghcr.io/someonelis/silo-aio</Registry>
   <Network>bridge</Network>
