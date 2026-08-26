@@ -32,13 +32,18 @@ SECRET_KEY="$(load_or_create_key /var/lib/silo/secret.key 48 "$SECRET_KEY")"
 MEILI_MASTER_KEY="$(load_or_create_key /var/lib/silo/meili.key 48 "$MEILI_MASTER_KEY")"
 PG_PASSWORD="$(load_or_create_key /var/lib/silo/pgpass.key 32 "$PG_PASSWORD")"
 
-# Persist the resolved environment so every supervised service sees it via with-contenv
-mkdir -p /run/s6/container_environment
-printf '%s' "$SECRET_KEY"       > /run/s6/container_environment/SECRET_KEY
-printf '%s' "$MEILI_MASTER_KEY" > /run/s6/container_environment/MEILI_MASTER_KEY
-printf '%s' "postgres://silo:${PG_PASSWORD}@127.0.0.1:5432/silo?sslmode=disable" > /run/s6/container_environment/DATABASE_URL
-printf '%s' "${REDIS_URL:-redis://127.0.0.1:6379}" > /run/s6/container_environment/REDIS_URL
-printf '%s' "${PORT:-8090}"     > /run/s6/container_environment/PORT
+# --- Write the resolved runtime environment to a file the service scripts source. ---
+# This is explicit and version-independent, avoiding reliance on s6's
+# container_environment path (which behaves differently across s6-overlay versions).
+RUNTIME_ENV="/var/lib/silo/.runtime-env"
+cat > "$RUNTIME_ENV" <<EOF
+export SECRET_KEY='${SECRET_KEY}'
+export MEILI_MASTER_KEY='${MEILI_MASTER_KEY}'
+export DATABASE_URL='postgres://silo:${PG_PASSWORD}@127.0.0.1:5432/silo?sslmode=disable'
+export REDIS_URL='${REDIS_URL:-redis://127.0.0.1:6379}'
+export PORT='${PORT:-8090}'
+EOF
+chmod 600 "$RUNTIME_ENV" 2>/dev/null || true
 
 # --- Ownership: scope it, don't recursively chown the whole appdata every boot ---
 chown postgres:postgres /var/lib/silo /var/lib/silo/postgres \
@@ -89,7 +94,6 @@ if ! su postgres -c "/usr/lib/postgresql/18/bin/psql -h 127.0.0.1 -tAc \"SELECT 
 fi
 
 # --- Wait until the 'silo' database really accepts connections before touching it. ---
-# This is the guard that prevents the 'database "silo" does not exist' fatal.
 until su postgres -c "/usr/lib/postgresql/18/bin/psql -h 127.0.0.1 -d silo -c 'SELECT 1;'" >/dev/null 2>&1; do
     echo "Waiting for 'silo' database to become available..."
     sleep 1
