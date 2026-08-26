@@ -31,7 +31,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl gnupg ca-c
     tar \
     xz-utils \
     && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /root/.npm
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /root/.npm \
+    && mkdir -p /usr/lib/jellyfin-ffmpeg \
+    && ln -s /usr/bin/ffmpeg /usr/lib/jellyfin-ffmpeg/ffmpeg
 
 # 2. Install s6-overlay v3.2.0.0
 ADD https://github.com/just-containers/s6-overlay/releases/download/v3.2.0.0/s6-overlay-noarch.tar.xz /tmp
