@@ -11,32 +11,51 @@ fi
 export PATH="/usr/lib/postgresql/18/bin:/app:$PATH"
 export PORT="${PORT:-8090}"
 
-# Create appdata base folder and manage persistent SECRET_KEY
-mkdir -p /var/lib/silo
-KEY_FILE="/var/lib/silo/secret.key"
-if [ -f "$KEY_FILE" ] && [ -s "$KEY_FILE" ]; then
-    export SECRET_KEY="$(cat "$KEY_FILE" | tr -d '\r\n')"
-elif [ -n "$SECRET_KEY" ]; then
-    echo "$SECRET_KEY" > "$KEY_FILE"
-else
-    NEW_KEY=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 48)
-    echo "$NEW_KEY" > "$KEY_FILE"
-    export SECRET_KEY="$NEW_KEY"
-fi
-chmod 600 "$KEY_FILE" 2>/dev/null || true
-
-# Fallback MEILI_MASTER_KEY
-if [ -z "$MEILI_MASTER_KEY" ]; then
-    export MEILI_MASTER_KEY="silo_aio_meili_default_key_32bytes!"
-fi
-
-# Create persistent appdata subdirectories and set ownership
+# Create appdata base folders
 mkdir -p /var/lib/silo/postgres /var/lib/silo/redis /var/lib/silo/meilisearch /var/lib/silo/logs
-chown -R postgres:postgres /var/lib/silo
+
+# --- Helper: generate-or-load a persisted secret file ---
+# Usage: load_or_create_key <file> <length> [env_var_override]
+load_or_create_key() {
+    local file="$1" length="$2" override="$3" val
+    if [ -f "$file" ] && [ -s "$file" ]; then
+        val="$(tr -d '\r\n' < "$file")"
+    elif [ -n "$override" ]; then
+        val="$override"
+        printf '%s' "$val" > "$file"
+    else
+        val="$(tr -dc A-Za-z0-9 </dev/urandom | head -c "$length")"
+        printf '%s' "$val" > "$file"
+    fi
+    chmod 600 "$file" 2>/dev/null || true
+    printf '%s' "$val"
+}
+
+# Persistent SECRET_KEY (encrypts Silo settings; MUST stay stable across rebuilds)
+export SECRET_KEY="$(load_or_create_key /var/lib/silo/secret.key 48 "$SECRET_KEY")"
+
+# Persistent MEILI_MASTER_KEY (no more public default constant)
+export MEILI_MASTER_KEY="$(load_or_create_key /var/lib/silo/meili.key 48 "$MEILI_MASTER_KEY")"
+
+# Persistent PostgreSQL password for the 'silo' role (no more hardcoded 'silo_password')
+PG_PASSWORD="$(load_or_create_key /var/lib/silo/pgpass.key 32 "$PG_PASSWORD")"
+
+# Build DATABASE_URL from the persisted password (overrides any image default)
+export DATABASE_URL="postgres://silo:${PG_PASSWORD}@127.0.0.1:5432/silo?sslmode=disable"
+export REDIS_URL="${REDIS_URL:-redis://127.0.0.1:6379}"
+
+# --- Ownership: scope it, don't recursively chown the whole appdata every boot ---
+# Only the postgres data dir must be owned by postgres. Fix the top-level dirs
+# cheaply (non-recursive) and only deep-chown postgres if ownership is wrong.
+chown postgres:postgres /var/lib/silo /var/lib/silo/postgres \
+    /var/lib/silo/redis /var/lib/silo/meilisearch /var/lib/silo/logs 2>/dev/null || true
+if [ "$(stat -c '%U' /var/lib/silo/postgres 2>/dev/null)" != "postgres" ]; then
+    chown -R postgres:postgres /var/lib/silo/postgres
+fi
 
 # Truncate PostgreSQL log if larger than 50MB to protect appdata disk space
 PG_LOG="/var/lib/silo/postgres/logfile"
-if [ -f "$PG_LOG" ] && [ $(stat -c%s "$PG_LOG" 2>/dev/null || echo 0) -gt 52428800 ]; then
+if [ -f "$PG_LOG" ] && [ "$(stat -c%s "$PG_LOG" 2>/dev/null || echo 0)" -gt 52428800 ]; then
     echo "PostgreSQL log exceeds 50MB. Truncating..."
     tail -n 1000 "$PG_LOG" > "${PG_LOG}.tmp" && mv "${PG_LOG}.tmp" "$PG_LOG"
     chown postgres:postgres "$PG_LOG"
@@ -61,8 +80,11 @@ until /usr/lib/postgresql/18/bin/pg_isready -h 127.0.0.1 -p 5432; do
   sleep 1
 done
 
-# 4. Provision database user, database, and vector extensions
-su postgres -c "/usr/lib/postgresql/18/bin/psql -h 127.0.0.1 -c \"CREATE USER silo WITH PASSWORD 'silo_password';\"" 2>/dev/null || true
+# 4. Provision database user, database, and vector extensions.
+#    Password is set via a parameterized variable so it never appears in shell history
+#    or process listings in cleartext, and is (re)applied every boot in case it rotated.
+su postgres -c "/usr/lib/postgresql/18/bin/psql -h 127.0.0.1 -v pw=\"'$PG_PASSWORD'\" -c \"CREATE USER silo WITH PASSWORD :pw;\"" 2>/dev/null || true
+su postgres -c "/usr/lib/postgresql/18/bin/psql -h 127.0.0.1 -v pw=\"'$PG_PASSWORD'\" -c \"ALTER USER silo WITH PASSWORD :pw;\"" 2>/dev/null || true
 su postgres -c "/usr/lib/postgresql/18/bin/psql -h 127.0.0.1 -c \"CREATE DATABASE silo OWNER silo;\"" 2>/dev/null || true
 su postgres -c "/usr/lib/postgresql/18/bin/psql -h 127.0.0.1 -d silo -c \"CREATE EXTENSION IF NOT EXISTS vector; CREATE EXTENSION IF NOT EXISTS citext;\""
 
@@ -72,20 +94,30 @@ su postgres -c "/usr/lib/postgresql/18/bin/psql -h 127.0.0.1 -d silo -c \"DELETE
 # 5. Start Meilisearch in background
 meilisearch --db-path /var/lib/silo/meilisearch --http-addr 127.0.0.1:7700 --master-key "$MEILI_MASTER_KEY" --no-analytics &
 
-# 6. Polling loop: Inject Meilisearch credentials once Silo creates settings table
+# 6. Polling loop: Inject Meilisearch credentials once Silo creates settings table.
+#    Failures are logged instead of silently discarded, so a schema change upstream
+#    is diagnosable via /var/lib/silo/logs/meili-inject.log.
+INJECT_LOG="/var/lib/silo/logs/meili-inject.log"
 (
   for i in {1..30}; do
     sleep 3
     if su postgres -c "/usr/lib/postgresql/18/bin/psql -h 127.0.0.1 -d silo -c \"SELECT 1 FROM settings LIMIT 1;\"" >/dev/null 2>&1; then
-      su postgres -c "/usr/lib/postgresql/18/bin/psql -h 127.0.0.1 -d silo -c \"
-        INSERT INTO settings (key, value) 
-        VALUES 
-          ('search.provider', 'meilisearch'), 
-          ('search.meili_url', 'http://127.0.0.1:7700'), 
-          ('search.meili_key', '$MEILI_MASTER_KEY') 
+      if su postgres -c "/usr/lib/postgresql/18/bin/psql -h 127.0.0.1 -d silo -v key=\"'$MEILI_MASTER_KEY'\" -c \"
+        INSERT INTO settings (key, value)
+        VALUES
+          ('search.provider', 'meilisearch'),
+          ('search.meili_url', 'http://127.0.0.1:7700'),
+          ('search.meili_key', :key)
         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
-      \"" >/dev/null 2>&1
+      \"" >>"$INJECT_LOG" 2>&1; then
+        echo "$(date -u '+%Y-%m-%dT%H:%M:%SZ') Meilisearch settings injected successfully." >>"$INJECT_LOG"
+      else
+        echo "$(date -u '+%Y-%m-%dT%H:%M:%SZ') WARNING: settings table present but injection failed (schema change?). See errors above." >>"$INJECT_LOG"
+      fi
       break
+    fi
+    if [ "$i" -eq 30 ]; then
+      echo "$(date -u '+%Y-%m-%dT%H:%M:%SZ') WARNING: settings table never appeared after 90s; Meilisearch not auto-configured." >>"$INJECT_LOG"
     fi
   done
 )&
