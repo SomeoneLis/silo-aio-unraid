@@ -1,4 +1,7 @@
 #!/command/with-contenv bash
+# Load the resolved runtime environment written by 10-silo-init.
+[ -f /var/lib/silo/.runtime-env ] && . /var/lib/silo/.runtime-env
+
 exec meilisearch \
   --db-path /var/lib/silo/meilisearch \
   --http-addr 127.0.0.1:7700 \
